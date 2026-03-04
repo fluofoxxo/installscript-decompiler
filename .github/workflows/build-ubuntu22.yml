@@ -1,0 +1,75 @@
+# .github/workflows/build-ubuntu22.yml
+name: Build (Ubuntu 22.04) and upload binary artifact
+
+on:
+  push:
+    branches: ["master", "main"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-ubuntu-22:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            cmake \
+            ninja-build \
+            git \
+            ca-certificates
+
+      - name: Patch project (Ubuntu/CMake compatibility)
+        shell: bash
+        run: |
+          set -euxo pipefail
+          # Fix CMake syntax warning: source_group("", FILES ...) should not have a comma.
+          sed -i 's/source_group("",[[:space:]]*FILES/source_group("" FILES/' CMakeLists.txt
+
+      - name: Configure (Release)
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cmake --build build --parallel
+
+      - name: Package artifact
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          BIN="./bin/Release/InstallScriptDecompiler"
+          if [[ ! -f "$BIN" ]]; then
+            echo "Expected binary not found at $BIN; searching..."
+            find . -maxdepth 5 -type f -name InstallScriptDecompiler -print
+            exit 1
+          fi
+
+          mkdir -p dist
+          cp -v "$BIN" dist/
+          cp -v README.md LICENSE dist/ || true
+
+          # Optional size reduction; ignore if strip fails for any reason.
+          strip dist/InstallScriptDecompiler || true
+
+          tar -czf InstallScriptDecompiler-ubuntu-22.04.tar.gz -C dist .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: InstallScriptDecompiler-ubuntu-22.04
+          path: InstallScriptDecompiler-ubuntu-22.04.tar.gz
+          if-no-files-found: error
